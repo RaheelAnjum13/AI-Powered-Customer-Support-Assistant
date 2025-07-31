@@ -44,7 +44,7 @@ else:
 
 st.markdown("💬 Chat Start from Here")
 for entry in st.session_state.chat_history[-10:]:
-    st.markdown("🧑‍💬 **You said:**")
+    st.markdown(" **You said:**")
     st.write(f"💬 {entry['user']}")
 
     st.markdown("🤖 **Assistant replied:**")
