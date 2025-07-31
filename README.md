@@ -110,5 +110,3 @@ requests
 - Add user feedback & analytics
 
 ---
-
-Built with 💬 by [Qazi]
