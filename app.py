@@ -13,19 +13,24 @@ class ProgressTracker:
         self.steps.append(message)
 
     def render(self):
-        with st.expander("Agent Workflow", expanded=False):
+        with st.expander("📋 Agent Step-by-Step Progress", expanded=False):
             for i, step in enumerate(self.steps[-15:], 1):
                 st.markdown(f"**{i}.** {step}")
 
 
-st.set_page_config(page_title="Customer Support Assistant", layout="centered")
-st.title("🤖 AI Powered Chat Support Assistant")
+st.set_page_config(page_title="CrewAI Chatbot", layout="centered")
+st.title("🤖 Chat Support Assistant")
 
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "system",
+            "content": "You are a helpful assistant that answers questions only using the provided website documentation.",
+        }
+    ]
 
-
+# Sidebar inputs
 with st.sidebar:
     st.markdown("🔐 **Enter your OpenAI API Key**")
     openai_key = st.text_input("API Key", type="password")
@@ -34,27 +39,29 @@ with st.sidebar:
     website_url = st.text_input("🔗 Enter website URL")
 
 
-if openai_key:
-    os.environ["OPENAI_API_KEY"] = openai_key
-    os.environ["OPENAI_MODEL_NAME"] = "gpt-3.5-turbo"
-else:
+if not openai_key:
     st.warning("Please enter your OpenAI API key to continue.")
     st.stop()
 
 
-st.markdown("💬 Chat Start from Here")
-for entry in st.session_state.chat_history[-10:]:
-    st.markdown(" **You said:**")
-    st.write(f"💬 {entry['user']}")
+os.environ["OPENAI_API_KEY"] = openai_key
+os.environ["OPENAI_MODEL_NAME"] = "gpt-3.5-turbo"
 
-    st.markdown("🤖 **Assistant replied:**")
-    st.write(f"📢 {entry['assistant']}")
-    st.markdown("---")
+
+for msg in st.session_state.messages:
+    if msg["role"] in ["user", "assistant"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
 
 inquiry = st.chat_input("Ask your support question here...")
 
 if inquiry and website_url:
+    st.session_state.messages.append({"role": "user", "content": inquiry})
+
+    with st.chat_message("user"):
+        st.markdown(inquiry)
+
     progress = ProgressTracker()
 
     with st.spinner("🛠️ Agents working on your request..."):
@@ -67,10 +74,11 @@ if inquiry and website_url:
             preview = text_content[:1000] + "..."
             progress.add_step("✅ Website content retrieved successfully!")
 
-            progress.add_step("🧠 Preparing context from last 10 messages...")
+            progress.add_step("🧠 Preparing context from chat messages...")
             context_block = "\n".join(
-                f"User: {entry['user']}\nAssistant: {entry['assistant']}"
-                for entry in st.session_state.chat_history[-10:]
+                f"<|{msg['role']}|> {msg['content']}"
+                for msg in st.session_state.messages
+                if msg["role"] in ["user", "assistant"]
             )
 
             progress.add_step("🛠️ Initializing support and QA agents...")
@@ -99,22 +107,24 @@ if inquiry and website_url:
                 description=(
                     f"You are a support assistant responding only using information from a scraped website.\n\n"
                     f"Previous conversation:\n{context_block or 'None'}\n\n"
-                    f"User Prompt:\n{inquiry}\n\n"
+                    f"<|user|> {inquiry}\n\n"
                     f"Respond with a clear and complete answer in plain text, based only on the website content."
                 ),
                 expected_output="Plain text answer only.",
                 tools=[docs_scrape_tool],
                 agent=support_agent,
             )
+
             qa_review = Task(
                 description=(
                     f"Review the support agent's answer for accuracy and clarity based only on website content.\n\n"
-                    f"Question:\n{inquiry}\n\n"
+                    f"Question:\n<|user|> {inquiry}\n\n"
                     f"Return a final improved plain text answer. No extra formatting."
                 ),
                 expected_output="Plain text final answer only.",
                 agent=qa_agent,
             )
+
             progress.add_step("📋 Tasks created successfully.")
 
             progress.add_step("🚀 Executing the CrewAI workflow...")
@@ -136,18 +146,22 @@ if inquiry and website_url:
             result = crew.kickoff(inputs={"inquiry": inquiry})
             final_response = result.output if hasattr(result, "output") else str(result)
 
-            st.session_state.chat_history.append(
-                {"user": inquiry, "assistant": final_response}
+            st.session_state.messages.append(
+                {"role": "assistant", "content": final_response}
             )
-            st.session_state.chat_history = st.session_state.chat_history[-10:]
+
+            with st.chat_message("assistant"):
+                st.markdown(final_response)
+
             progress.add_step("✅ All tasks completed successfully.")
 
-            st.success("🎉 Answer ready!")
-            st.markdown("**📨 Final Answer:**")
-            st.write(final_response)
-
         except Exception as e:
-            progress.add_step(f"❌ Error: {str(e)}")
-            st.error(f"❌ Error: {str(e)}")
+            error_msg = f"❌ Error: {str(e)}"
+            st.session_state.messages.append(
+                {"role": "assistant", "content": error_msg}
+            )
+            with st.chat_message("assistant"):
+                st.markdown(error_msg)
+            progress.add_step(error_msg)
 
     progress.render()
